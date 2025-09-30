@@ -22,10 +22,16 @@ type Config struct {
 	channelsConfig    *model.ChannelsConfig
 	releasesConfig    *model.ReleasesConfig
 	appDefaultsConfig *model.AppDefaultsConfig
+
+	callback Callback
 }
 
 type Wait interface {
 	Wait(ctx context.Context) bool
+}
+
+type Callback interface {
+	Callback(err error)
 }
 
 type Source interface {
@@ -52,11 +58,16 @@ func (s StringSource) URL() string {
 }
 
 func NewConfig(ctx context.Context, subKey string, wait Wait, channelServerVersion string, appName string, ghToken string, urls []Source) *Config {
+	return NewConfigWithCallback(ctx, subKey, wait, channelServerVersion, appName, ghToken, urls, nil)
+}
+
+func NewConfigWithCallback(ctx context.Context, subKey string, wait Wait, channelServerVersion string, appName string, ghToken string, urls []Source, callback Callback) *Config {
 	c := &Config{
 		ghToken:           ghToken,
 		channelsConfig:    &model.ChannelsConfig{},
 		releasesConfig:    &model.ReleasesConfig{},
 		appDefaultsConfig: &model.AppDefaultsConfig{},
+		callback:          callback,
 	}
 
 	logrus.Infof("Loading configuration from %v", urls)
@@ -81,6 +92,16 @@ func NewConfig(ctx context.Context, subKey string, wait Wait, channelServerVersi
 }
 
 func (c *Config) loadConfig(ctx context.Context, subKey string, channelServerVersion string, appName string, urls ...Source) (int, error) {
+	index, err := c.loadConfigInner(ctx, subKey, channelServerVersion, appName, urls...)
+
+	if c.callback != nil {
+		c.callback.Callback(err)
+	}
+
+	return index, err
+}
+
+func (c *Config) loadConfigInner(ctx context.Context, subKey string, channelServerVersion string, appName string, urls ...Source) (int, error) {
 	content, index, err := getURLs(ctx, urls...)
 	if err != nil {
 		return index, fmt.Errorf("failed to get content from url %s: %v", urls[index].URL(), err)
